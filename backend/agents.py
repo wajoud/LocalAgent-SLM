@@ -1,23 +1,35 @@
 from crewai import Agent, Task, Crew, Process
-from langchain_community.chat_models import ChatOllama
-from langchain_community.tools import DuckDuckGoSearchRun, WikipediaQueryRun
-from langchain_community.utilities import WikipediaAPIWrapper
-from langchain.tools import tool
+from crewai.tools import tool
+from typing import Any
 import numexpr
+from backend.config import MANAGER_MODEL, CODER_MODEL, MATH_MODEL, RESEARCHER_MODEL
 
-# Initialize local LLM
-llm = ChatOllama(model="llama3", temperature=0.2)
+# Helper to fix Ollama's nested dictionary tool arguments
+def parse_query(q: Any) -> str:
+    if isinstance(q, dict):
+        # Sometimes Ollama passes {"type": "string", "value": "actual query"}
+        return q.get("value", str(q))
+    return str(q)
 
-# Define Tools
-search_tool = DuckDuckGoSearchRun()
-wiki_wrapper = WikipediaAPIWrapper()
-wiki_tool = WikipediaQueryRun(api_wrapper=wiki_wrapper)
+# Define Tools via the wrapper to ensure Pydantic v2 compatibility
+@tool("Search Tool")
+def search_tool(query: Any) -> str:
+    """Useful for searching the internet."""
+    from langchain_community.tools import DuckDuckGoSearchRun
+    return DuckDuckGoSearchRun().run(parse_query(query))
+
+@tool("Wiki Tool")
+def wiki_tool(query: Any) -> str:
+    """Useful for searching wikipedia."""
+    from langchain_community.tools import WikipediaQueryRun
+    from langchain_community.utilities import WikipediaAPIWrapper
+    return WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper()).run(parse_query(query))
 
 @tool("Math Tool")
-def math_tool(expression: str) -> str:
+def math_tool(expression: Any) -> str:
     """Useful for evaluating mathematical expressions. Input should be a valid mathematical expression string."""
     try:
-        result = numexpr.evaluate(expression)
+        result = numexpr.evaluate(parse_query(expression))
         return str(result)
     except Exception as e:
         return f"Error evaluating math expression: {e}"
@@ -31,7 +43,7 @@ def run_crew(query: str):
         verbose=True,
         allow_delegation=False,
         tools=[search_tool, wiki_tool],
-        llm=llm
+        llm=RESEARCHER_MODEL
     )
 
     # Agent 2: Calculator/Data Processor
@@ -42,44 +54,45 @@ def run_crew(query: str):
         verbose=True,
         allow_delegation=False,
         tools=[math_tool],
-        llm=llm
+        llm=MATH_MODEL
     )
 
-    # Agent 3: Summarizer / Final Answer
-    writer = Agent(
-        role='Senior Writer',
-        goal='Synthesize the research and calculations into a clear, concise, and helpful final response.',
-        backstory='You are an expert writer. You take the findings from the Researcher and Calculator and formulate a perfect response to the user.',
+    # Agent 3: Software Engineer
+    coder = Agent(
+        role='Senior Software Engineer',
+        goal='Write clean, efficient, and well-documented code.',
+        backstory='You are an expert programmer. When the user asks for code, you provide robust software solutions.',
         verbose=True,
-        allow_delegation=True,
-        llm=llm
+        allow_delegation=False,
+        llm=CODER_MODEL
     )
 
     # Tasks
     task_research = Task(
-        description=f'Analyze the query: "{query}". If it requires factual information or searching, use your tools to find it. If no research is needed, just state "No research needed".',
-        expected_output='Factual information related to the query, or "No research needed".',
+        description=f'Research anything related to this query if fact-checking or context is needed: "{query}".',
+        expected_output='Factual information from the web or wikipedia.',
         agent=researcher
     )
 
     task_math = Task(
-        description=f'Analyze the query: "{query}". If it contains mathematical expressions or requires calculation, use the Math Tool. If not, just state "No calculation needed".',
-        expected_output='Calculated result, or "No calculation needed".',
+        description=f'Solve any mathematical or logical parts of this query: "{query}".',
+        expected_output='Math results.',
         agent=calculator
     )
 
-    task_write = Task(
-        description=f'Combine the findings from the research and math tasks to provide a direct and final answer to the original query: "{query}". Make sure it is accurate and well-formatted.',
-        expected_output='A clear, concise, and helpful final response directly addressing the user\'s query.',
-        agent=writer
+    task_code = Task(
+        description=f'Write any code or programming scripts required by this query: "{query}".',
+        expected_output='Clean, functional code.',
+        agent=coder
     )
 
-    # Crew
+    # Crew - Using Hierarchical process so the Manager Agent handles routing!
     crew = Crew(
-        agents=[researcher, calculator, writer],
-        tasks=[task_research, task_math, task_write],
-        process=Process.sequential,
-        verbose=2
+        agents=[researcher, calculator, coder],
+        tasks=[task_research, task_math, task_code],
+        process=Process.hierarchical,
+        manager_llm=MANAGER_MODEL,
+        verbose=True
     )
 
     result = crew.kickoff()

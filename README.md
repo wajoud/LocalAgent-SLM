@@ -1,23 +1,51 @@
 # LocalAgent-SLM (Multi-Agent System)
 
+![UI Preview](./ui_preview.png)
+
 Build fully functional, offline AI agents that run entirely on your own hardware. This project leverages the new generation of compact, efficient Small Language Models (SLMs) to enable reasoning, planning, and task execution on standard laptops—eliminating API costs and ensuring total data privacy.
 
-## Features
-- **Multi-Agent System**: Utilizes `CrewAI` with 3 specialized agents (Researcher, Mathematician, Writer) working together.
-- **Local Small Language Models (SLM)**: Powered by `Ollama` running `llama3` locally. Completely free and offline.
-- **Tools**: Includes DuckDuckGo Search, Wikipedia, and a Math Tool to extend the capabilities of the SLMs.
-- **FastAPI Backend**: A lightweight, fast backend for interacting with the agents.
-- **Premium Frontend UI**: A beautiful, modern chat interface utilizing glassmorphism and smooth animations.
+## Multi-LLM Agent Architecture
+We utilize a **Hierarchical Multi-LLM setup**. Instead of using one "jack-of-all-trades" model, a **Supervisor Agent** evaluates your query and automatically assigns tasks to specialized agents running entirely different models.
+
+```mermaid
+flowchart TD
+    A[User Prompt] --> B{Manager Agent llama3.2}
+    
+    subgraph Multi-Agent Topology
+        B
+        C[Researcher Agent llama3.2]
+        D[Software Engineer qwen2.5-coder]
+        E[Math & Logic Agent phi3.5]
+    end
+    
+    B -->|Research Task| C
+    B -->|Coding Task| D
+    B -->|Math Task| E
+    
+    C -.->|Tools Output| B
+    D -.->|Code Output| B
+    E -.->|Math Result| B
+    
+    B --> F[Final Answer]
+```
+
+### The LLM Lineup
+This vertical scaling is easily configurable in `backend/config.py`.
+1. **Llama 3.2** - *Manager & Researcher*: Llama 3.2 is an incredibly fast, highly capable Small Language Model optimized for multi-lingual and agentic tasks. It's perfectly suited for orchestrating the crew and finding facts.
+2. **Qwen 2.5 Coder** - *Software Engineer*: The state-of-the-art local coding model. It writes clean, efficient code far better than general-purpose SLMs.
+3. **Phi-3.5** - *Mathematician*: Highly optimized for deep logic and mathematics.
 
 ## Prerequisites
 1. **Python 3.10+**: Ensure you have a modern version of Python installed.
 2. **Ollama**: You must install Ollama to run the models locally.
    - Download Ollama from [https://ollama.com/](https://ollama.com/)
-   - Once installed, open your terminal and pull the Llama 3 model by running:
+   - Once installed, pull the models used in our topology:
      ```bash
-     ollama run llama3
+     ollama run llama3.2
+     ollama run qwen2.5-coder
+     ollama run phi3.5
      ```
-     *(You can exit the ollama prompt once it downloads by typing `/bye`)*
+     *(Type `/bye` to exit the ollama prompt after downloading)*
 
 ## Setup Instructions
 
@@ -39,7 +67,7 @@ Build fully functional, offline AI agents that run entirely on your own hardware
 
 ## How it Works
 When you send a message through the UI, it goes to the FastAPI backend. The backend kicks off a `CrewAI` process:
-1. The **Researcher Agent** checks if web search or Wikipedia is needed.
-2. The **Calculator Agent** checks if any math needs solving.
-3. The **Writer Agent** synthesizes the findings and provides the final answer back to the UI.
-All reasoning happens locally on your machine via the `llama3` model hosted in Ollama!
+1. The **Supervisor Agent (llama4-scout)** evaluates the query.
+2. It assigns tasks to the specialized agents (Researcher, Coder, Calculator) using their respective tools.
+3. The agents utilize their specialized local models to complete the work.
+4. The Supervisor synthesizes their findings and provides the absolute best answer back to the UI!

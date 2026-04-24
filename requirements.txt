@@ -7,3 +7,8 @@ duckduckgo-search
 wikipedia
 numexpr
 pydantic
+pytest
+httpx
+langchain
+ddgs
+langchain-ollama
