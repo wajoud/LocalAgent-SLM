@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+crewai
+langchain-community
+langchain-core
+duckduckgo-search
+wikipedia
+numexpr
+pydantic
